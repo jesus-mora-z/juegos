@@ -1,0 +1,10 @@
+# Despliegue gratuito en Render (https://render.com): Blueprint de un servicio web Node.
+# El plan gratuito se "duerme" tras 15 min sin visitas; la primera visita tarda ~1 min en despertar.
+services:
+  - type: web
+    name: juegos
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /

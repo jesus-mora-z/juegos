@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Borde exterior de la ficha -->
+  <circle cx="50" cy="50" r="48" fill="#e6b800" stroke="#b38f00" stroke-width="4"/>
+  <!-- Círculo interior blanco/claro -->
+  <circle cx="50" cy="50" r="35" fill="#fff9e6" stroke="#cc9900" stroke-width="2"/>
+  <!-- Detalles rojos del borde (marcas de casino) -->
+  <path d="M50 2 L58 15 L42 15 Z" fill="#b30000"/>
+  <path d="M50 98 L58 85 L42 85 Z" fill="#b30000"/>
+  <path d="M2 50 L15 42 L15 58 Z" fill="#b30000"/>
+  <path d="M98 50 L85 42 L85 58 Z" fill="#b30000"/>
+  <!-- Text central -->
+  <text x="50" y="58" font-family="Arial" font-size="24" font-weight="bold" fill="#b38f00" text-anchor="middle">$</text>
+</svg>

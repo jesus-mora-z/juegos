@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juegos</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="login-screen">
+        <div class="login-box">
+            <h1>🎮 Juegos</h1>
+            <input type="text" id="username" placeholder="Ingresa tu nombre">
+            <button id="login-btn">Entrar</button>
+        </div>
+    </div>
+
+    <div id="lobby-screen" class="hidden">
+        <div class="lobby-box">
+            <h2>Selecciona un Juego</h2>
+            <div class="game-options">
+                <div class="game-card" id="btn-bj">
+                    <h3>Blackjack 21</h3>
+                    <p>Con Doblar y Pares Perfectos</p>
+                    <button class="btn btn-primary">Jugar</button>
+                </div>
+                <div class="game-card" id="btn-poker">
+                    <h3>Texas Hold'em</h3>
+                    <p>¡Nuevo Juego!</p>
+                    <button class="btn btn-secondary">Jugar Poker</button>
+                </div>
+                <div class="game-card" id="btn-monopoly">
+                    <h3>🎲 Monopoly</h3>
+                    <p>¡Compra propiedades!</p>
+                    <button class="btn btn-secondary">Jugar Monopoly</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BLACKJACK SCREEN -->
+    <div id="game-screen" class="hidden">
+        <div class="top-bar">
+            <button class="btn leave-room btn-danger btn-sm">Volver al Lobby</button>
+            <div class="chip-display">
+                <img src="chip.svg" class="chip-icon" alt="Fichas" onerror="this.src=''; this.className='chip-emoji'; this.alt='🪙';">
+                <span id="my-balance-display">0</span>
+            </div>
+        </div>
+
+        <div class="casino-table">
+            <div class="dealer-area">
+                <h2>Mano del Crupier</h2>
+                <div id="dealer-cards" class="cards-container"></div>
+                <div id="dealer-score" class="score"></div>
+            </div>
+
+            <div class="status-bar" id="status-bar">
+                Esperando a otros jugadores...
+            </div>
+
+            <div id="players-area" class="players-container">
+                <!-- Los jugadores se renderizan aquí -->
+            </div>
+        </div>
+    </div>
+
+    <!-- POKER SCREEN -->
+    <div id="poker-screen" class="hidden">
+        <div class="top-bar">
+            <button class="btn leave-room btn-danger btn-sm">Volver al Lobby</button>
+            <div class="chip-display">
+                <img src="chip.svg" class="chip-icon" alt="Fichas" onerror="this.src=''; this.className='chip-emoji'; this.alt='🪙';">
+                <span id="poker-my-balance">0</span>
+            </div>
+        </div>
+
+        <div class="casino-table">
+            <div class="dealer-area">
+                <h2>Mesa de Poker</h2>
+                <div id="poker-pot" class="score" style="color: #ffd700; margin-bottom: 10px;">Bote: $0</div>
+                <div id="poker-community-cards" class="cards-container"></div>
+            </div>
+
+            <div class="status-bar" id="poker-status-bar">
+                Esperando a otros jugadores...
+            </div>
+
+            <div id="poker-players-area" class="players-container">
+                <!-- Los jugadores se renderizan aquí -->
+            </div>
+        </div>
+    </div>
+
+    <!-- MONOPOLY SCREEN -->
+    <div id="monopoly-screen" class="hidden">
+        <div class="top-bar">
+            <button class="btn leave-room btn-danger btn-sm">Volver al Lobby</button>
+            <button id="mono-camera-btn" class="btn btn-secondary btn-sm" title="Cambiar la vista del tablero">🎥 Vista 3D</button>
+            <div class="chip-display">
+                <span>🪙</span>
+                <span id="monopoly-my-balance">0</span>
+            </div>
+        </div>
+        <div class="monopoly-stage">
+            <div class="monopoly-board" id="monopoly-board">
+                <!-- Cantos del tablero (grosor del cartón en 3D) -->
+                <div class="board-edge edge-front"></div>
+                <div class="board-edge edge-left"></div>
+                <div class="board-edge edge-right"></div>
+                <!-- Las 24 casillas las dibuja client.js alrededor del centro -->
+                <div class="monopoly-center">
+                    <div class="mono-deck">
+                        <div class="mono-deck-stack chest-deck"><span>🧰</span><small>ARCA COMUNAL</small></div>
+                        <div class="mono-deck-stack"><span>?</span><small>SUERTE</small></div>
+                        <div id="monopoly-card" class="mono-chance-card hidden"></div>
+                    </div>
+                    <div class="mono-center-main">
+                        <div class="mono-logo">MONOPOLIO</div>
+                        <div id="monopoly-message">Esperando jugadores...</div>
+                        <div id="mono-token-picker" class="hidden"></div>
+                        <div id="monopoly-controls" class="mono-actions hidden">
+                            <button id="mono-start-btn" class="btn btn-primary hidden">🎮 Iniciar Juego</button>
+                            <button id="mono-roll-btn" class="btn btn-primary hidden">🎲 Tirar Dados</button>
+                            <button id="mono-pay-jail-btn" class="btn btn-warning hidden">Pagar $50 (Salir de la Cárcel)</button>
+                            <button id="mono-jail-card-btn" class="btn btn-success hidden">🎟️ Usar carta "Sal libre"</button>
+                            <button id="mono-buy-btn" class="btn btn-success hidden">Comprar</button>
+                            <button id="mono-skip-btn" class="btn btn-danger hidden">No Comprar</button>
+                            <button id="mono-end-btn" class="btn btn-warning hidden">Terminar Turno</button>
+                        </div>
+                    </div>
+                    <div class="mono-center-side">
+                        <div class="mono-dice">
+                            <div class="die-slot"><div class="die-shadow"></div><div class="die-wrap"><div class="die" id="mono-die-1"></div></div></div>
+                            <div class="die-slot"><div class="die-shadow"></div><div class="die-wrap"><div class="die" id="mono-die-2"></div></div></div>
+                        </div>
+                        <div id="monopoly-current-player"></div>
+                        <div id="monopoly-timer"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Mano de tarjetas de propiedad + panel de jugadores -->
+        <div class="mono-bottom">
+            <div id="mono-hand"></div>
+            <div id="monopoly-players-panel"></div>
+        </div>
+        <!-- Capa de efectos visuales (carteles, montos flotantes, monedas, confeti) -->
+        <div id="mono-fx"></div>
+        <!-- Tarjeta ampliada al hacer clic en una propiedad del tablero -->
+        <div id="mono-deed-popup" class="hidden"></div>
+    </div>
+
+    <!-- CONTROLES FLOTANTES (Fuera de todo, directo en body) -->
+    <div id="betting-controls" class="floating-panel hidden">
+        <div class="bet-group">
+            <label>Apuesta Normal ($10 min):</label>
+            <input type="number" id="main-bet-amount" min="10" step="10" value="10">
+        </div>
+        <div class="bet-group">
+            <label>Pares Perfectos (Opcional):</label>
+            <input type="number" id="side-bet-amount" min="0" step="10" value="0" placeholder="0">
+        </div>
+        <button id="bet-btn" class="btn btn-primary">Confirmar Apuestas</button>
+    </div>
+
+    <div id="playing-controls" class="floating-panel hidden">
+        <button id="hit-btn" class="btn btn-success">Pedir Carta</button>
+        <button id="stand-btn" class="btn btn-danger">Plantarse</button>
+        <button id="double-btn" class="btn btn-warning">Doblar (x2)</button>
+    </div>
+
+    <div id="poker-start-control" class="floating-panel hidden">
+        <button id="poker-start-btn" class="btn btn-primary">Iniciar Mano (Min 2 Jugadores)</button>
+    </div>
+
+    <div id="poker-playing-controls" class="floating-panel hidden">
+        <button id="poker-fold-btn" class="btn btn-danger">No Voy (Fold)</button>
+        <button id="poker-call-btn" class="btn btn-success">Igualar/Pasar (Call/Check)</button>
+        <input type="number" id="poker-raise-amount" min="20" step="10" placeholder="Monto a subir" style="width:100px; padding:8px; border-radius:5px; border:1px solid #ffd700; background:#222; color:#ffd700; font-weight:bold;">
+        <button id="poker-raise-btn" class="btn btn-warning">Subir (Raise)</button>
+    </div>
+
+    <!-- CHAT GLOBAL (Flotante) -->
+    <div id="global-chat" class="hidden">
+        <div id="chat-header"><span>💬 Chat</span><button id="chat-min-btn" title="Minimizar">–</button></div>
+        <div id="chat-messages"></div>
+        <input type="text" id="chat-input" placeholder="Escribe aquí... (Enter)" maxlength="300">
+    </div>
+    <button id="chat-dot" class="hidden" title="Abrir chat">💬<span id="chat-badge" class="hidden">0</span></button>
+
+    <script type="importmap">
+    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+    </script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+    <!-- Tablero 3D (WebGL). Si no carga, el juego usa el tablero HTML de respaldo. -->
+    <script type="module" src="mono3d/index.js"></script>
+</body>
+</html>

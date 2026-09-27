@@ -1,0 +1,22 @@
+{
+  "name": "blackjack_multiplayer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "pokersolver": "^2.1.4",
+    "socket.io": "^4.8.4",
+    "three": "^0.186.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
