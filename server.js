@@ -2,28 +2,16 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const Hand = require('pokersolver').Hand;
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+const colonos = require('./games/colonos')(io);
+const casino = require('./games/casino')(io);   // Blackjack y Poker
 
 app.use(express.static(path.join(__dirname, 'public')));
 // Three.js para el tablero 3D del Monopoly (se sirve desde node_modules)
 app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules', 'three')));
-
-const suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades'];
-const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-
-function createDeck() {
-    let deck = [];
-    for (let suit of suits) {
-        for (let value of values) {
-            deck.push({ suit, value });
-        }
-    }
-    return deck;
-}
 
 function shuffleDeck(deck) {
     for (let i = deck.length - 1; i > 0; i--) {
@@ -31,36 +19,6 @@ function shuffleDeck(deck) {
         [deck[i], deck[j]] = [deck[j], deck[i]];
     }
     return deck;
-}
-
-function calculateScore(cards) {
-    let score = 0;
-    let aces = 0;
-    for (let card of cards) {
-        if (['J', 'Q', 'K'].includes(card.value)) {
-            score += 10;
-        } else if (card.value === 'A') {
-            score += 11;
-            aces += 1;
-        } else {
-            score += parseInt(card.value);
-        }
-    }
-    while (score > 21 && aces > 0) {
-        score -= 10;
-        aces -= 1;
-    }
-    return score;
-}
-
-function getSuitColor(suit) {
-    return (suit === 'Hearts' || suit === 'Diamonds') ? 'red' : 'black';
-}
-
-function toPokerSolverCard(card) {
-    let v = card.value === '10' ? 'T' : card.value;
-    let s = card.suit.charAt(0).toLowerCase();
-    return v + s;
 }
 
 // Tablero clásico de 40 casillas (11x11). Precios, rentas y costos de casa del Monopoly original.
@@ -167,26 +125,6 @@ const MONOPOLY_DECKS = { chance: CHANCE_CARDS, chest: CHEST_CARDS };
 const MONOPOLY_COLORS = ['#FF4444', '#4488FF', '#44CC44', '#FFAA00', '#FF44FF', '#44FFFF'];
 
 let rooms = {
-    blackjack: {
-        status: 'WAITING',
-        players: {},
-        dealerCards: [],
-        deck: [],
-        currentPlayerIndex: 0,
-        roundPlayers: []
-    },
-    poker: {
-        status: 'WAITING',
-        players: {},
-        communityCards: [],
-        deck: [],
-        pot: 0,
-        highestBet: 0,
-        roundPlayers: [],
-        currentPlayerIndex: 0,
-        dealerIndex: -1,
-        minBet: 20
-    },
     monopoly: {
         status: 'WAITING',
         players: {},
@@ -207,371 +145,6 @@ let rooms = {
         eventSeq: 0
     }
 };
-
-// ================= BLACKJACK LOGIC =================
-
-function broadcastBjState() {
-    let stateToSend = JSON.parse(JSON.stringify(rooms.blackjack));
-    if (['DEALING', 'PLAYING'].includes(stateToSend.status) && stateToSend.dealerCards.length > 0) {
-        stateToSend.dealerCards[1] = { hidden: true };
-    }
-    io.to('blackjack').emit('gameState', stateToSend);
-}
-
-function startBjRound() {
-    let bj = rooms.blackjack;
-    bj.status = 'DEALING';
-    let multiDeck = [];
-    for(let i=0; i<4; i++) {
-        multiDeck = multiDeck.concat(createDeck());
-    }
-    bj.deck = shuffleDeck(multiDeck);
-    bj.dealerCards = [];
-    bj.roundPlayers = Object.keys(bj.players).filter(id => bj.players[id].mainBet > 0);
-    bj.currentPlayerIndex = 0;
-
-    for (let id of bj.roundPlayers) {
-        let player = bj.players[id];
-        player.cards = [bj.deck.pop(), bj.deck.pop()];
-        player.score = calculateScore(player.cards);
-        player.state = 'PLAYING';
-
-        if (player.sideBet > 0) {
-            const c1 = player.cards[0];
-            const c2 = player.cards[1];
-            if (c1.value === c2.value) {
-                if (c1.suit === c2.suit) {
-                    let win = player.sideBet * 25;
-                    player.balance += win + player.sideBet;
-                    player.sideBetResult = `¡Par Perfecto! Ganas $${win}`;
-                } else if (getSuitColor(c1.suit) === getSuitColor(c2.suit)) {
-                    let win = player.sideBet * 12;
-                    player.balance += win + player.sideBet;
-                    player.sideBetResult = `¡Par de Color! Ganas $${win}`;
-                } else {
-                    let win = player.sideBet * 5;
-                    player.balance += win + player.sideBet;
-                    player.sideBetResult = `¡Par Mixto! Ganas $${win}`;
-                }
-            } else {
-                player.sideBetResult = 'Perdiste apuesta lateral';
-            }
-        }
-    }
-
-    bj.dealerCards = [bj.deck.pop(), bj.deck.pop()];
-    bj.status = 'PLAYING';
-    checkBjCurrentPlayer();
-}
-
-function checkBjCurrentPlayer() {
-    let bj = rooms.blackjack;
-    if (bj.currentPlayerIndex >= bj.roundPlayers.length) {
-        playBjDealer();
-        return;
-    }
-    let currentPlayerId = bj.roundPlayers[bj.currentPlayerIndex];
-    let player = bj.players[currentPlayerId];
-    
-    if (player.score === 21) {
-        player.state = 'STAND';
-        nextBjTurn();
-    }
-}
-
-function nextBjTurn() {
-    let bj = rooms.blackjack;
-    bj.currentPlayerIndex++;
-    if (bj.currentPlayerIndex >= bj.roundPlayers.length) {
-        playBjDealer();
-    } else {
-        checkBjCurrentPlayer();
-    }
-}
-
-function playBjDealer() {
-    let bj = rooms.blackjack;
-    bj.status = 'DEALER_TURN';
-    broadcastBjState();
-
-    setTimeout(() => {
-        let dealerScore = calculateScore(bj.dealerCards);
-        while (dealerScore < 17) {
-            bj.dealerCards.push(bj.deck.pop());
-            dealerScore = calculateScore(bj.dealerCards);
-        }
-        resolveBjRound(dealerScore);
-    }, 1000);
-}
-
-function resolveBjRound(dealerScore) {
-    let bj = rooms.blackjack;
-    bj.status = 'RESOLUTION';
-    
-    for (let id of bj.roundPlayers) {
-        let player = bj.players[id];
-        if (player.state === 'BUST') {
-            player.state = 'LOST';
-        } else {
-            if (dealerScore > 21 || player.score > dealerScore) {
-                if (player.cards.length === 2 && player.score === 21) {
-                    player.balance += player.mainBet * 2.5;
-                    player.state = 'WON_BLACKJACK';
-                } else {
-                    player.balance += player.mainBet * 2;
-                    player.state = 'WON';
-                }
-            } else if (player.score === dealerScore) {
-                player.balance += player.mainBet;
-                player.state = 'PUSH';
-            } else {
-                player.state = 'LOST';
-            }
-        }
-        player.mainBet = 0;
-        player.sideBet = 0;
-    }
-    
-    broadcastBjState();
-    
-    setTimeout(() => {
-        bj.dealerCards = [];
-        let allBroke = true;
-        let playerCount = 0;
-        for(let id in bj.players) {
-            bj.players[id].cards = [];
-            bj.players[id].score = 0;
-            bj.players[id].state = 'WAITING';
-            bj.players[id].sideBetResult = null;
-            if (bj.players[id].balance >= 10) {
-                allBroke = false;
-            }
-            playerCount++;
-        }
-        
-        // Solo recargar si TODOS los jugadores en la sala están en 0
-        if (allBroke && playerCount > 0) {
-            for(let id in bj.players) {
-                bj.players[id].balance = 10000;
-            }
-        }
-        
-        bj.status = 'BETTING';
-        broadcastBjState();
-    }, 5000);
-}
-
-
-// ================= POKER LOGIC =================
-
-function broadcastPokerState() {
-    const socketsInRoom = io.sockets.adapter.rooms.get('poker');
-    if (!socketsInRoom) return;
-    
-    for (let socketId of socketsInRoom) {
-        let personalState = JSON.parse(JSON.stringify(rooms.poker));
-        for (let playerId in personalState.players) {
-            if (playerId !== socketId && personalState.status !== 'SHOWDOWN') {
-                personalState.players[playerId].cards = personalState.players[playerId].cards.map(c => ({ hidden: true }));
-            }
-        }
-        io.to(socketId).emit('pokerGameState', personalState);
-    }
-}
-
-function startPokerRound() {
-    let p = rooms.poker;
-    let eligible = Object.keys(p.players).filter(id => p.players[id].balance > 0);
-    if (eligible.length < 2) {
-        p.status = 'WAITING';
-        broadcastPokerState();
-        return;
-    }
-    
-    p.roundPlayers = eligible;
-    p.dealerIndex = (p.dealerIndex + 1) % p.roundPlayers.length;
-    
-    let sbIndex = (p.dealerIndex + 1) % p.roundPlayers.length;
-    let bbIndex = (p.dealerIndex + 2) % p.roundPlayers.length;
-    
-    p.pot = 0;
-    p.communityCards = [];
-    p.deck = shuffleDeck(createDeck());
-    p.highestBet = p.minBet;
-    
-    for (let id of p.roundPlayers) {
-        let player = p.players[id];
-        player.cards = [p.deck.pop(), p.deck.pop()];
-        player.currentRoundBet = 0;
-        player.totalHandBet = 0;
-        player.state = 'PLAYING';
-        player.actedThisRound = false;
-        player.handDescription = '';
-    }
-    
-    let sbId = p.roundPlayers[sbIndex];
-    let bbId = p.roundPlayers[bbIndex];
-    
-    let sbAmt = Math.min(p.minBet / 2, p.players[sbId].balance);
-    p.players[sbId].balance -= sbAmt;
-    p.players[sbId].currentRoundBet = sbAmt;
-    
-    let bbAmt = Math.min(p.minBet, p.players[bbId].balance);
-    p.players[bbId].balance -= bbAmt;
-    p.players[bbId].currentRoundBet = bbAmt;
-    
-    p.pot = sbAmt + bbAmt;
-    
-    p.currentPlayerIndex = (bbIndex + 1) % p.roundPlayers.length;
-    p.status = 'PREFLOP';
-    
-    checkPokerTurn();
-}
-
-function checkPokerTurn() {
-    let p = rooms.poker;
-    let notFolded = p.roundPlayers.filter(id => p.players[id].state !== 'FOLDED');
-    
-    if (notFolded.length === 1) {
-        endPokerHand(notFolded[0]);
-        return;
-    }
-    
-    let roundOver = true;
-    for (let id of notFolded) {
-        let player = p.players[id];
-        if (player.state === 'PLAYING') {
-            if (!player.actedThisRound || player.currentRoundBet < p.highestBet) {
-                roundOver = false;
-                break;
-            }
-        }
-    }
-    
-    if (roundOver) {
-        nextPokerStage();
-        return;
-    }
-    
-    let currId = p.roundPlayers[p.currentPlayerIndex];
-    let currPlayer = p.players[currId];
-    if (currPlayer.state !== 'PLAYING') {
-        p.currentPlayerIndex = (p.currentPlayerIndex + 1) % p.roundPlayers.length;
-        checkPokerTurn();
-        return;
-    }
-    
-    broadcastPokerState();
-}
-
-function nextPokerStage() {
-    let p = rooms.poker;
-    
-    for(let id of p.roundPlayers) {
-        p.players[id].totalHandBet += p.players[id].currentRoundBet;
-        p.players[id].currentRoundBet = 0;
-        if (p.players[id].state === 'PLAYING') {
-            p.players[id].actedThisRound = false;
-        }
-    }
-    p.highestBet = 0;
-    
-    // Action starts left of dealer
-    p.currentPlayerIndex = (p.dealerIndex + 1) % p.roundPlayers.length;
-    
-    if (p.status === 'PREFLOP') {
-        p.status = 'FLOP';
-        p.communityCards.push(p.deck.pop(), p.deck.pop(), p.deck.pop());
-    } else if (p.status === 'FLOP') {
-        p.status = 'TURN';
-        p.communityCards.push(p.deck.pop());
-    } else if (p.status === 'TURN') {
-        p.status = 'RIVER';
-        p.communityCards.push(p.deck.pop());
-    } else if (p.status === 'RIVER') {
-        evaluatePokerHands();
-        return;
-    }
-    
-    checkPokerTurn();
-}
-
-function endPokerHand(winnerId) {
-    let p = rooms.poker;
-    p.status = 'SHOWDOWN';
-    
-    for(let id of p.roundPlayers) {
-        p.players[id].totalHandBet += p.players[id].currentRoundBet;
-    }
-    
-    p.players[winnerId].balance += p.pot;
-    p.players[winnerId].handDescription = 'Ganador (Todos se retiraron)';
-    
-    broadcastPokerState();
-    
-    setTimeout(() => { resetPokerForNextRound(); }, 5000);
-}
-
-function evaluatePokerHands() {
-    let p = rooms.poker;
-    p.status = 'SHOWDOWN';
-    let notFolded = p.roundPlayers.filter(id => p.players[id].state !== 'FOLDED');
-    
-    for(let id of p.roundPlayers) {
-        p.players[id].totalHandBet += p.players[id].currentRoundBet;
-    }
-    
-    let board = p.communityCards.map(toPokerSolverCard);
-    let hands = [];
-    
-    for (let id of notFolded) {
-        let playerCards = p.players[id].cards.map(toPokerSolverCard);
-        let hand = Hand.solve(playerCards.concat(board));
-        hand.id = id;
-        hands.push(hand);
-        p.players[id].handDescription = hand.descr;
-    }
-    
-    let winners = Hand.winners(hands);
-    let splitAmount = Math.floor(p.pot / winners.length);
-    
-    for (let w of winners) {
-        p.players[w.id].balance += splitAmount;
-        p.players[w.id].handDescription = '🏆 ' + p.players[w.id].handDescription;
-    }
-    
-    broadcastPokerState();
-    
-    setTimeout(() => { resetPokerForNextRound(); }, 8000);
-}
-
-function resetPokerForNextRound() {
-    let p = rooms.poker;
-    let allBroke = true;
-    let playerCount = 0;
-    
-    for (let id in p.players) {
-        p.players[id].cards = [];
-        p.players[id].currentRoundBet = 0;
-        p.players[id].totalHandBet = 0;
-        p.players[id].state = 'WAITING';
-        p.players[id].handDescription = '';
-        if (p.players[id].balance >= p.minBet) {
-            allBroke = false;
-        }
-        playerCount++;
-    }
-    
-    if (allBroke && playerCount > 0) {
-        for (let id in p.players) {
-            p.players[id].balance = 10000;
-        }
-    }
-    
-    p.communityCards = [];
-    p.pot = 0;
-    startPokerRound();
-}
 
 // ================= MONOPOLY LOGIC =================
 let monopolyTurnTimer = null;
@@ -1167,52 +740,36 @@ io.on('connection', (socket) => {
     });
 
     socket.on('joinRoom', (roomName) => {
-        if (roomName === 'blackjack') {
-            socket.join('blackjack');
-            rooms.blackjack.players[socket.id] = {
-                id: socket.id, name: socket.playerName || 'Jugador', balance: 10000,
-                mainBet: 0, sideBet: 0, cards: [], state: 'WAITING', score: 0, sideBetResult: null
-            };
-            if (rooms.blackjack.status === 'WAITING') { rooms.blackjack.status = 'BETTING'; }
-            broadcastBjState();
-        } 
-        else if (roomName === 'poker') {
-            socket.join('poker');
-            rooms.poker.players[socket.id] = {
-                id: socket.id, name: socket.playerName || 'Jugador', balance: 10000,
-                cards: [], currentRoundBet: 0, totalHandBet: 0, state: 'WAITING', actedThisRound: false, handDescription: ''
-            };
-            broadcastPokerState();
+        if (roomName === 'blackjack' || roomName === 'poker') {
+            casino.join(socket, roomName);
         }
         else if (roomName === 'monopoly') {
             joinMonopoly(socket);
+        }
+        else if (roomName === 'colonos') {
+            colonos.join(socket);
         }
     });
 
     // MONOPOLY: Start and actions
     socket.on('startMonopoly', () => startMonopolyGame(socket.id));
     socket.on('setMonopolyToken', (token) => setMonopolyToken(socket.id, token));
+
+    // COLONOS DE LA ISLA
+    socket.on('colonosAction', (action) => colonos.handle(socket.id, action));
     socket.on('monopolyAction', (data) => handleMonopolyAction(socket.id, data));
 
-    // POKER: Force start
-    socket.on('startPoker', () => {
-        if (rooms.poker.status === 'WAITING') {
-            startPokerRound();
-        }
-    });
+    // BLACKJACK Y POKER
+    socket.on('startPoker', () => casino.startPoker(socket.id));
+    socket.on('pokerAction', (data) => casino.poker(socket.id, data));
+    for (const type of ['placeBet', 'hit', 'stand', 'doubleDown', 'split']) {
+        socket.on(type, (data) => casino.blackjack(socket.id, type, data));
+    }
 
     socket.on('disconnect', () => {
-        if (rooms.blackjack.players[socket.id]) {
-            delete rooms.blackjack.players[socket.id];
-            if (Object.keys(rooms.blackjack.players).length === 0) rooms.blackjack.status = 'WAITING';
-            broadcastBjState();
-        }
-        if (rooms.poker.players[socket.id]) {
-            delete rooms.poker.players[socket.id];
-            if (Object.keys(rooms.poker.players).length === 0) rooms.poker.status = 'WAITING';
-            broadcastPokerState();
-        }
+        casino.leave(socket.id);
         removeMonopolyPlayer(socket.id);
+        colonos.leave(socket.id);
     });
 
     // CHAT GLOBAL
@@ -1225,120 +782,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // POKER ACTIONS
-    socket.on('pokerAction', (actionData) => {
-        let p = rooms.poker;
-        let player = p.players[socket.id];
-        
-        if (player && p.roundPlayers[p.currentPlayerIndex] === socket.id && player.state === 'PLAYING') {
-            const action = actionData.action; 
-            const amount = parseInt(actionData.amount) || 0;
-            
-            if (action === 'fold') {
-                player.state = 'FOLDED';
-                player.actedThisRound = true;
-            } else if (action === 'call') {
-                let callAmount = p.highestBet - player.currentRoundBet;
-                if (callAmount >= player.balance) {
-                    callAmount = player.balance;
-                    player.state = 'ALL_IN';
-                }
-                player.balance -= callAmount;
-                player.currentRoundBet += callAmount;
-                p.pot += callAmount;
-                player.actedThisRound = true;
-            } else if (action === 'raise') {
-                let totalNewBet = p.highestBet + amount;
-                let addAmount = totalNewBet - player.currentRoundBet;
-                
-                if (addAmount >= player.balance) {
-                    addAmount = player.balance;
-                    player.state = 'ALL_IN';
-                    totalNewBet = player.currentRoundBet + addAmount;
-                }
-                
-                player.balance -= addAmount;
-                player.currentRoundBet += addAmount;
-                p.pot += addAmount;
-                player.actedThisRound = true;
-                
-                if (player.currentRoundBet > p.highestBet) {
-                    p.highestBet = player.currentRoundBet;
-                    for (let id of p.roundPlayers) {
-                        if (id !== socket.id && p.players[id].state === 'PLAYING') {
-                            p.players[id].actedThisRound = false;
-                        }
-                    }
-                }
-            }
-            p.currentPlayerIndex = (p.currentPlayerIndex + 1) % p.roundPlayers.length;
-            checkPokerTurn();
-        }
-    });
-
-    // BLACKJACK ACTIONS
-    socket.on('placeBet', (bets) => {
-        let bj = rooms.blackjack;
-        let player = bj.players[socket.id];
-        if (player && bj.status === 'BETTING') {
-            const main = parseInt(bets.mainBet) || 0;
-            const side = parseInt(bets.sideBet) || 0;
-            const total = main + side;
-            
-            if (main >= 10 && total <= player.balance) {
-                player.mainBet = main;
-                player.sideBet = side;
-                player.balance -= total;
-                player.state = 'BETTING';
-                player.sideBetResult = null;
-                
-                let allBet = true, activeCount = 0;
-                for (let id in bj.players) {
-                    if (bj.players[id].balance >= 10 || bj.players[id].mainBet > 0) {
-                        if (bj.players[id].mainBet === 0) { allBet = false; break; }
-                        activeCount++;
-                    }
-                }
-                if (allBet && activeCount > 0) startBjRound();
-                broadcastBjState();
-            }
-        }
-    });
-
-    socket.on('hit', () => {
-        let bj = rooms.blackjack;
-        let player = bj.players[socket.id];
-        if (player && bj.status === 'PLAYING' && bj.roundPlayers[bj.currentPlayerIndex] === socket.id) {
-            player.cards.push(bj.deck.pop());
-            player.score = calculateScore(player.cards);
-            if (player.score > 21) { player.state = 'BUST'; nextBjTurn(); }
-            broadcastBjState();
-        }
-    });
-
-    socket.on('stand', () => {
-        let bj = rooms.blackjack;
-        let player = bj.players[socket.id];
-        if (player && bj.status === 'PLAYING' && bj.roundPlayers[bj.currentPlayerIndex] === socket.id) {
-            player.state = 'STAND'; nextBjTurn(); broadcastBjState();
-        }
-    });
-
-    socket.on('doubleDown', () => {
-        let bj = rooms.blackjack;
-        let player = bj.players[socket.id];
-        if (player && bj.status === 'PLAYING' && bj.roundPlayers[bj.currentPlayerIndex] === socket.id) {
-            if (player.cards.length === 2 && player.balance >= player.mainBet) {
-                player.balance -= player.mainBet;
-                player.mainBet *= 2;
-                player.cards.push(bj.deck.pop());
-                player.score = calculateScore(player.cards);
-                if (player.score > 21) { player.state = 'BUST'; } else { player.state = 'STAND'; }
-                nextBjTurn();
-                broadcastBjState();
-            }
-        }
-    });
 });
 
 const PORT = process.env.PORT || 3000;

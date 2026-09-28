@@ -34,6 +34,11 @@
                     <p>¡Compra propiedades!</p>
                     <button class="btn btn-secondary">Jugar Monopoly</button>
                 </div>
+                <div class="game-card" id="btn-colonos">
+                    <h3>🏝️ Colonos de la Isla</h3>
+                    <p>¡Coloniza, comercia y construye!</p>
+                    <button class="btn btn-secondary">Jugar Colonos</button>
+                </div>
             </div>
         </div>
     </div>
@@ -46,21 +51,36 @@
                 <img src="chip.svg" class="chip-icon" alt="Fichas" onerror="this.src=''; this.className='chip-emoji'; this.alt='🪙';">
                 <span id="my-balance-display">0</span>
             </div>
+            <button id="bj-sound-btn" class="btn btn-secondary btn-sm" title="Sonido">🔊</button>
         </div>
 
-        <div class="casino-table">
-            <div class="dealer-area">
-                <h2>Mano del Crupier</h2>
-                <div id="dealer-cards" class="cards-container"></div>
-                <div id="dealer-score" class="score"></div>
-            </div>
-
-            <div class="status-bar" id="status-bar">
-                Esperando a otros jugadores...
-            </div>
-
-            <div id="players-area" class="players-container">
-                <!-- Los jugadores se renderizan aquí -->
+        <div class="bj-wrap">
+            <div class="bj-table">
+                <!-- Riel del crupier: descarte, bandeja de fichas y zapato de cartas -->
+                <div class="bj-rail">
+                    <div class="bj-discard"></div>
+                    <div class="bj-tray"><span class="bj-stack c0"></span><span class="bj-stack c1"></span><span class="bj-stack c2"></span><span class="bj-stack c3"></span><span class="bj-stack c0"></span><span class="bj-stack c1"></span><span class="bj-stack c2"></span><span class="bj-stack c3"></span></div>
+                    <div class="bj-shoe"><span></span></div>
+                </div>
+                <div class="bj-limits">Mín: $10<br>Máx: $5000</div>
+                <!-- Textos impresos en el paño, en arco -->
+                <svg class="bj-felt" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMin meet" aria-hidden="true">
+                    <defs>
+                        <path id="bj-arc1" d="M 198 150 A 470 470 0 0 0 802 150" />
+                        <path id="bj-arc2" d="M 172 181 A 510 510 0 0 0 828 181" />
+                        <path id="bj-arc3" d="M 140 219 A 560 560 0 0 0 860 219" />
+                    </defs>
+                    <path d="M 141 217 A 558 558 0 0 0 859 217" class="bj-band" />
+                    <text class="bj-t1"><textPath href="#bj-arc1" startOffset="50%">BLACKJACK PAGA 3 A 2</textPath></text>
+                    <text class="bj-t2"><textPath href="#bj-arc2" startOffset="50%">El crupier pide con 16 y se planta con 17</textPath></text>
+                    <text class="bj-t3"><textPath href="#bj-arc3" startOffset="50%">SEGURO PAGA 2 A 1</textPath></text>
+                </svg>
+                <div class="bj-dealer-zone">
+                    <div id="dealer-cards" class="cards-container"></div>
+                    <div id="dealer-score" class="score"></div>
+                </div>
+                <div class="status-bar" id="status-bar">Esperando a otros jugadores...</div>
+                <div id="players-area" class="bj-seats"></div>
             </div>
         </div>
     </div>
@@ -151,6 +171,20 @@
         <div id="mono-deed-popup" class="hidden"></div>
     </div>
 
+    <!-- COLONOS DE LA ISLA -->
+    <div id="colonos-screen" class="hidden">
+        <div class="top-bar">
+            <button class="btn leave-room btn-danger btn-sm">Volver al Lobby</button>
+            <div class="col-topname">🏝️ Colonos de la Isla</div>
+            <div class="col-topspacer"></div>
+        </div>
+        <div class="col-layout">
+            <div id="col-stage"></div>
+            <div id="col-side"></div>
+        </div>
+        <div id="col-hand"></div>
+    </div>
+
     <!-- CONTROLES FLOTANTES (Fuera de todo, directo en body) -->
     <div id="betting-controls" class="floating-panel hidden">
         <div class="bet-group">
@@ -168,6 +202,7 @@
         <button id="hit-btn" class="btn btn-success">Pedir Carta</button>
         <button id="stand-btn" class="btn btn-danger">Plantarse</button>
         <button id="double-btn" class="btn btn-warning">Doblar (x2)</button>
+        <button id="split-btn" class="btn btn-primary hidden">✂️ Dividir</button>
     </div>
 
     <div id="poker-start-control" class="floating-panel hidden">
@@ -196,5 +231,6 @@
     <script src="client.js"></script>
     <!-- Tablero 3D (WebGL). Si no carga, el juego usa el tablero HTML de respaldo. -->
     <script type="module" src="mono3d/index.js"></script>
+    <script type="module" src="colonos/ui.js"></script>
 </body>
 </html>

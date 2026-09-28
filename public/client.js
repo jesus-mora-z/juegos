@@ -31,6 +31,7 @@ const betBtn = document.getElementById('bet-btn');
 const hitBtn = document.getElementById('hit-btn');
 const standBtn = document.getElementById('stand-btn');
 const doubleBtn = document.getElementById('double-btn');
+const splitBtn = document.getElementById('split-btn');
 
 // Poker DOM
 const pokerPot = document.getElementById('poker-pot');
@@ -270,6 +271,7 @@ betBtn.addEventListener('click', () => {
 hitBtn.addEventListener('click', () => socket.emit('hit'));
 standBtn.addEventListener('click', () => socket.emit('stand'));
 doubleBtn.addEventListener('click', () => socket.emit('doubleDown'));
+splitBtn.addEventListener('click', () => socket.emit('split'));
 
 // ================= POKER EVENTS =================
 pokerStartBtn.addEventListener('click', () => socket.emit('startPoker'));
@@ -362,9 +364,11 @@ function renderPlayersRadial(state, containerEl, isPoker = false) {
         if (isPoker) {
             let roleIdx = state.roundPlayers.indexOf(id);
             if (roleIdx !== -1) {
-                if (roleIdx === state.dealerIndex) role = ' [D]';
-                else if (roleIdx === (state.dealerIndex + 1) % state.roundPlayers.length) role = ' [SB]';
-                else if (roleIdx === (state.dealerIndex + 2) % state.roundPlayers.length) role = ' [BB]';
+                const nSeats = state.roundPlayers.length;
+                const sbIdx = nSeats === 2 ? state.dealerIndex : (state.dealerIndex + 1) % nSeats;
+                if (roleIdx === state.dealerIndex) role = nSeats === 2 ? ' [D/SB]' : ' [D]';
+                else if (roleIdx === sbIdx) role = ' [SB]';
+                else if (roleIdx === (sbIdx + 1) % nSeats) role = ' [BB]';
             }
         }
 
@@ -404,55 +408,185 @@ function renderPlayersRadial(state, containerEl, isPoker = false) {
     });
 }
 
-// Blackjack State handler
+// ---- Mesa de Blackjack: asientos en arco alrededor del crupier ----
+const BJ_SEATS = 7;
+const BJ_RESULT = {
+    WON: ['GANASTE', 'win'], WON_BLACKJACK: ['¡BLACKJACK!', 'bj'], PUSH: ['EMPATE', 'push'],
+    LOST: ['PERDISTE', 'lose'], BUST: ['TE PASASTE', 'lose'], STAND: ['PLANTADO', ''],
+};
+const pointValueLocal = c => (['10', 'J', 'Q', 'K'].includes(c.value) ? 10 : c.value);
+
+// Fichas apiladas según el monto (colores clásicos de casino)
+function chipStack(amount) {
+    if (!amount) return '';
+    const DEN = [[1000, 'k'], [500, 'p'], [100, 'n'], [25, 'g'], [5, 'r'], [1, 'w']];
+    let left = amount, html = '', count = 0;
+    for (const [value, cls] of DEN) {
+        while (left >= value && count < 8) { html += `<i class="chip chip-${cls}" style="--i:${count}"></i>`; left -= value; count++; }
+    }
+    return `<div class="bj-chips">${html}<b>$${amount}</b></div>`;
+}
+
+function renderBlackjackTable(state) {
+    playersArea.innerHTML = '';
+    const curId = state.roundPlayers[state.currentPlayerIndex];
+    const nDeal = state.roundPlayers.length;
+    for (const id of Object.keys(state.players)) {
+        const seatOrder = Math.max(0, state.roundPlayers.indexOf(id));
+        const p = state.players[id];
+        const seat = Number.isFinite(p.seat) ? p.seat % BJ_SEATS : 3;
+        // Ángulo sobre el arco: asiento 0 a la derecha del crupier ... 6 a la izquierda
+        const angle = (160 - seat * (140 / (BJ_SEATS - 1))) * Math.PI / 180;
+        const x = 50 + 41 * Math.cos(angle), y = 12 + 70 * Math.sin(angle);
+        const rot = (Math.cos(angle) * -32).toFixed(1);
+        const isMe = id === myId;
+        const playing = state.status === 'PLAYING' && id === curId;
+        const hands = (p.hands && p.hands.length) ? p.hands : [];
+        const handsHtml = hands.map((h, i) => {
+            const res = state.status === 'RESOLUTION' ? BJ_RESULT[h.result] : (h.state === 'BUST' ? BJ_RESULT.BUST : null);
+            const active = playing && i === p.handIndex;
+            return `<div class="bj-hand ${active ? 'active' : ''}">
+                <div class="bj-cards">${h.cards.map((c, ci) => bjCard(c, `${id}:${i}:${ci}`, ci * (nDeal + 1) + seatOrder)).join('')}</div>
+                <div class="bj-score">${h.score}${h.doubled ? ' · x2' : ''}</div>
+                ${res ? `<div class="bj-result ${res[1]}">${res[0]}</div>` : ''}
+            </div>`;
+        }).join('');
+        const el = document.createElement('div');
+        el.className = `bj-seat ${playing ? 'active' : ''} ${isMe ? 'me' : ''}`;
+        el.style.left = `${x}%`;
+        el.style.top = `${y}%`;
+        el.style.setProperty('--rot', `${rot}deg`);
+        el.innerHTML = `
+            <div class="bj-hands">${handsHtml}</div>
+            <div class="bj-box">${chipStack(p.mainBet)}</div>
+            <div class="bj-pp">${p.sideBet ? `<small>PP</small>${chipStack(p.sideBet)}` : '<small>PP</small>'}</div>
+            ${p.sideBetResult ? `<div class="bj-side">${escapeHtml(p.sideBetResult)}</div>` : ''}
+            <div class="bj-plate"><b>${escapeHtml(p.name)}${isMe ? ' (Tú)' : ''}</b><span>🪙 ${p.balance}</span></div>`;
+        playersArea.appendChild(el);
+        if (isMe) myBalanceDisplay.innerText = p.balance;
+    }
+}
+
+let bjCountdown = null;
+
+// ---- Reparto realista: cada carta nueva vuela desde el zapato; la oculta del crupier se da vuelta ----
+const BJ_DEAL_CARD_MS = 350;   // mismo ritmo que el servidor
+const bjSeen = new Map();      // clave de carta -> si estaba boca abajo
+function bjCard(card, key, order) {
+    return renderCard(card).replace('<div class="card', `<div data-key="${key}" data-order="${order}" data-hidden="${card.hidden ? 1 : 0}" class="card`);
+}
+function bjAnimateCards(state) {
+    const shoe = document.querySelector('.bj-shoe')?.getBoundingClientRect();
+    if (!shoe) return;
+    const initialDeal = state.status === 'DEALING';
+    let extra = 0;
+    for (const el of document.querySelectorAll('#game-screen .card[data-key]')) {
+        const key = el.dataset.key, hidden = el.dataset.hidden === '1';
+        if (!bjSeen.has(key)) {
+            const r = el.getBoundingClientRect();
+            el.style.setProperty('--dx', `${shoe.left + shoe.width / 2 - (r.left + r.width / 2)}px`);
+            el.style.setProperty('--dy', `${shoe.top + shoe.height / 2 - (r.top + r.height / 2)}px`);
+            const delay = initialDeal ? Number(el.dataset.order) * BJ_DEAL_CARD_MS : extra++ * 150;
+            el.style.animationDelay = `${delay}ms`;
+            el.classList.add('deal-in');
+            bjSound('card', delay);
+        } else if (bjSeen.get(key) && !hidden) {
+            el.classList.add('flip-reveal');   // el crupier da vuelta su carta oculta
+            bjSound('flip', 0);
+        }
+        bjSeen.set(key, hidden);
+    }
+}
+
+// Sonidos sintetizados (sin archivos): roce de carta y giro. Se pueden silenciar con 🔊.
+let bjAudio = null;
+let bjMuted = false;
+try { bjMuted = localStorage.getItem('bj.mute') === '1'; } catch (e) { /* sin almacenamiento */ }
+function bjSound(kind, delayMs) {
+    if (bjMuted || document.hidden) return;
+    try {
+        bjAudio = bjAudio || new (window.AudioContext || window.webkitAudioContext)();
+        if (bjAudio.state === 'suspended') bjAudio.resume();
+        const t = bjAudio.currentTime + delayMs / 1000;
+        const len = kind === 'flip' ? 0.18 : 0.11;
+        const buffer = bjAudio.createBuffer(1, Math.floor(bjAudio.sampleRate * len), bjAudio.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+        const src = bjAudio.createBufferSource();
+        src.buffer = buffer;
+        const filter = bjAudio.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = kind === 'flip' ? 1800 : 3200;
+        const gain = bjAudio.createGain();
+        gain.gain.value = kind === 'flip' ? 0.35 : 0.25;
+        src.connect(filter).connect(gain).connect(bjAudio.destination);
+        src.start(t);
+    } catch (e) { /* audio no disponible */ }
+}
+const bjSoundBtn = document.getElementById('bj-sound-btn');
+const bjSoundLabel = () => { bjSoundBtn.textContent = bjMuted ? '🔇' : '🔊'; };
+bjSoundBtn.addEventListener('click', () => {
+    bjMuted = !bjMuted;
+    try { localStorage.setItem('bj.mute', bjMuted ? '1' : '0'); } catch (e) { /* sin almacenamiento */ }
+    bjSoundLabel();
+});
+bjSoundLabel();
 socket.on('gameState', (state) => {
-    // Reset controles primero
     bettingControls.classList.add('hidden');
     playingControls.classList.add('hidden');
 
-    dealerCardsContainer.innerHTML = '';
-    state.dealerCards.forEach(card => {
-        dealerCardsContainer.innerHTML += renderCard(card);
-    });
-    if (['DEALER_TURN', 'RESOLUTION'].includes(state.status)) {
-        dealerScoreDisplay.innerText = `Puntos: ${calculateScoreLocal(state.dealerCards)}`;
-    } else {
-        dealerScoreDisplay.innerText = '';
-    }
+    if (!state.dealerCards.length) bjSeen.clear();   // ronda nueva
+    const nDealers = state.roundPlayers.length;
+    dealerCardsContainer.innerHTML = state.dealerCards.map((c, i) => bjCard(c, `d:${i}`, i * (nDealers + 1) + nDealers)).join('');
+    dealerScoreDisplay.innerText = ['DEALER_TURN', 'RESOLUTION'].includes(state.status)
+        ? `Crupier: ${calculateScoreLocal(state.dealerCards)}` : '';
 
-    let statusMsg = '';
-    switch(state.status) {
-        case 'WAITING': statusMsg = 'Esperando jugadores...'; break;
-        case 'BETTING': statusMsg = '¡Hagan sus apuestas! (Fichas mín. 10)'; break;
-        case 'DEALING': statusMsg = 'Repartiendo...'; break;
-        case 'PLAYING': 
-            let activeId = state.roundPlayers[state.currentPlayerIndex];
-            statusMsg = (activeId === myId) ? '¡Es tu turno!' : `Turno de ${state.players[activeId]?.name || 'alguien'}...`;
-            break;
-        case 'DEALER_TURN': statusMsg = 'Turno del Crupier...'; break;
-        case 'RESOLUTION': statusMsg = 'Resolviendo apuestas...'; break;
+    clearInterval(bjCountdown);
+    const setStatus = () => {
+        let msg = '';
+        switch (state.status) {
+            case 'WAITING': msg = 'Esperando jugadores...'; break;
+            case 'BETTING':
+                msg = '¡Hagan sus apuestas! (mín. $10)';
+                if (state.betSecondsLeft !== null) msg += ` · Se reparte en ${Math.max(0, state.betSecondsLeft)}s`;
+                break;
+            case 'DEALING': msg = 'Repartiendo...'; break;
+            case 'PLAYING': {
+                const activeId = state.roundPlayers[state.currentPlayerIndex];
+                msg = activeId === myId ? '¡Es tu turno!' : `Turno de ${state.players[activeId]?.name || 'alguien'}...`;
+                break;
+            }
+            case 'DEALER_TURN': msg = 'Turno del crupier...'; break;
+            case 'RESOLUTION': msg = 'Pagando apuestas...'; break;
+        }
+        statusBar.innerText = msg;
+    };
+    setStatus();
+    if (state.status === 'BETTING' && state.betSecondsLeft !== null) {
+        bjCountdown = setInterval(() => { state.betSecondsLeft--; setStatus(); if (state.betSecondsLeft <= 0) clearInterval(bjCountdown); }, 1000);
     }
-    statusBar.innerText = statusMsg;
 
     try {
-        renderPlayersRadial(state, playersArea, false);
-    } catch(e) {
-        console.error('Error renderPlayersRadial BJ:', e);
+        renderBlackjackTable(state);
+        bjAnimateCards(state);
+    } catch (e) {
+        console.error('Error al dibujar la mesa de Blackjack:', e);
     }
 
     const me = state.players[myId];
-    const currentActiveId = state.roundPlayers[state.currentPlayerIndex];
-    if (me) {
-        myBalanceDisplay.innerText = me.balance;
-        if (state.status === 'BETTING' && me.mainBet === 0 && me.balance >= 10) {
-            bettingControls.classList.remove('hidden');
-            mainBetInput.max = me.balance;
-        } else if (state.status === 'PLAYING' && currentActiveId === myId && me.state === 'PLAYING') {
-            playingControls.classList.remove('hidden');
-            if (me.cards.length === 2 && me.balance >= me.mainBet) {
-                doubleBtn.classList.remove('hidden');
-            }
-        }
+    if (!me) return;
+    myBalanceDisplay.innerText = me.balance;
+    const hand = me.hands?.[me.handIndex];
+    if (state.status === 'BETTING' && me.mainBet === 0 && me.balance >= 10) {
+        bettingControls.classList.remove('hidden');
+        mainBetInput.max = me.balance;
+    } else if (state.status === 'PLAYING' && state.roundPlayers[state.currentPlayerIndex] === myId && hand && hand.state === 'PLAYING') {
+        playingControls.classList.remove('hidden');
+        const canDouble = hand.cards.length === 2 && !hand.splitAces && me.balance >= hand.bet;
+        const canSplit = hand.cards.length === 2 && pointValueLocal(hand.cards[0]) === pointValueLocal(hand.cards[1])
+            && me.hands.length < 4 && me.balance >= hand.bet;
+        doubleBtn.classList.toggle('hidden', !canDouble);
+        splitBtn.classList.toggle('hidden', !canSplit);
     }
 });
 
