@@ -1958,3 +1958,6 @@ body {
 }
 #game-screen .card:hover { transform: none; }
 #bj-sound-btn { font-size: 16px; padding: 4px 10px; }
+
+.mono-cam-group { display: flex; gap: 6px; }
+#monopoly-screen:not(.mono-3d) #mono-follow-btn { display: none; }   /* solo en el tablero 3D */

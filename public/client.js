@@ -813,6 +813,11 @@ function renderMonopolyTokens(state, movingPid = null, effect = '') {
             });
         }
         window.Mono3D.setTokens(list, { movingPid, effect });
+        // La cámara sigue a mi ficha: mientras se mueve, y al empezar mi turno
+        const mePlayer = state.players[myId];
+        if (monoFollow && mePlayer && !mePlayer.eliminated && (movingPid === myId || (!movingPid && currentPid === myId))) {
+            window.Mono3D.focusCell(monoDisplayPos[myId] ?? mePlayer.position);
+        }
     }
     // Resalta la casilla donde está (visualmente) el jugador de turno
     const currentPos = state.status === 'PLAYING' && state.players[currentPid] ? monoDisplayPos[currentPid] : -1;
@@ -1439,6 +1444,19 @@ monoStage.addEventListener('mouseleave', () => {
     monopolyBoard.style.setProperty('--cam-z', '0deg');
     monopolyBoard.style.setProperty('--cam-x', '0deg');
 });
+
+// ---- Cámara que sigue a mi ficha (se puede apagar; el navegador recuerda la elección) ----
+let monoFollow = true;
+try { monoFollow = localStorage.getItem('mono.follow') !== '0'; } catch (e) { /* sin almacenamiento */ }
+const monoFollowBtn = document.getElementById('mono-follow-btn');
+function renderFollowBtn() { monoFollowBtn.textContent = `👁️ Seguir mi ficha: ${monoFollow ? 'Sí' : 'No'}`; }
+monoFollowBtn.addEventListener('click', () => {
+    monoFollow = !monoFollow;
+    try { localStorage.setItem('mono.follow', monoFollow ? '1' : '0'); } catch (e) { /* sin almacenamiento */ }
+    renderFollowBtn();
+    if (!monoFollow && MONO3D.active) window.Mono3D.focusCell(0);   // vuelve al lado de la Salida
+});
+renderFollowBtn();
 
 // ---- Tablero 3D (WebGL): se activa si public/mono3d/index.js publicó window.Mono3D ----
 // Con ?no3d=1 en la URL se usa siempre el tablero HTML de respaldo.

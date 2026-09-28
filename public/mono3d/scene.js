@@ -908,6 +908,9 @@ export function createMonoScene(contenedor, { view = 0, insets = null } = {}) {
     posicionOrbital(VISTAS[vistaActual].elevacion, 0, 20, camera.position);
     camera.lookAt(OBJETIVO);
 
+    // Azimut desde donde mira la cámara: 0 = lado de la Salida (+z); cambia al seguir una ficha
+    let azimutObjetivo = 0;
+
     function setView(i) {
         const indice = ((Math.floor(Number(i) || 0) % VISTAS.length) + VISTAS.length) % VISTAS.length;
         vistaActual = indice;
@@ -920,9 +923,20 @@ export function createMonoScene(contenedor, { view = 0, insets = null } = {}) {
         transicion = {
             t0: reloj(),
             desde,
-            hasta: { r: distanciaEncuadre(elev, 0), elev, az: desde.az + diferenciaAngular(desde.az, 0) },
+            hasta: { r: distanciaEncuadre(elev, azimutObjetivo), elev, az: desde.az + diferenciaAngular(desde.az, azimutObjetivo) },
         };
         despertar();
+    }
+
+    // Gira la cámara alrededor de la mesa para mirar desde el lado donde está la casilla
+    // (abajo = lado de la Salida, izquierda, arriba o derecha), manteniendo la vista elegida.
+    function focusCell(pos) {
+        const p = ((Math.floor(Number(pos) || 0) % 40) + 40) % 40;
+        const lado = Math.floor(p / 10);   // 0 abajo, 1 izquierda, 2 arriba, 3 derecha (la esquina cuenta en su lado nuevo)
+        const az = [0, -Math.PI / 2, Math.PI, Math.PI / 2][lado];
+        if (Math.abs(diferenciaAngular(azimutObjetivo, az)) < 1e-3 && !transicion) return;
+        azimutObjetivo = az;
+        setView(vistaActual);
     }
 
     // Desplaza la imagen para que el tablero quede centrado en la zona útil: con perspectiva, el borde
@@ -1156,7 +1170,7 @@ export function createMonoScene(contenedor, { view = 0, insets = null } = {}) {
     despertar();
 
     return {
-        setBoard,
+        setBoard, focusCell,
         setTokens,
         rollDice,
         drawCard,

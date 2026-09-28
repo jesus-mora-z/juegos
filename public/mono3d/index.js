@@ -61,6 +61,9 @@ export const Mono3D = {
 
     flashCell(pos, colorHex) { seguro('flashCell', e => e.flashCell(pos, colorHex)); },
 
+    // Gira la cámara para mirar desde el lado del tablero donde está esa casilla
+    focusCell(pos) { seguro('focusCell', e => e.focusCell(pos)); },
+
     // Centro de la casilla en píxeles de la ventana (clientX/clientY), o null.
     cellScreenPoint(pos) { return seguro('cellScreenPoint', e => e.cellScreenPoint(pos), null); },
 
