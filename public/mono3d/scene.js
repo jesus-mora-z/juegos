@@ -15,7 +15,7 @@ import { createHouse, createHotel, buildingPlacements } from './buildings.js';
 import { createDice } from './dice.js';
 
 // ---------- Parámetros ----------
-const TEXTURA_TABLERO = 2048;            // lado del lienzo de la cara superior del tablero
+const TEXTURA_TABLERO = 4096;            // lado del lienzo de la cara superior (si la GPU no lo soporta se usa 2048)
 const COLOR_FONDO = 0x120d09;            // oscuridad alrededor de la mesa
 const COLOR_MENTA = '#cfe6d3';           // base del tablero antes de recibir el primer estado
 
@@ -361,7 +361,7 @@ export function createMonoScene(contenedor, { view = 0, insets = null } = {}) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMappingExposure = 1.0;
     renderer.shadowMap.enabled = true;
     // En r186 PCFSoftShadowMap fue retirado: PCFShadowMap con shadow.radius da la sombra suave.
     renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -433,15 +433,18 @@ export function createMonoScene(contenedor, { view = 0, insets = null } = {}) {
 
     // Tablero: losa con la cara superior en y = 0. La textura usa las UV de BoxGeometry, que
     // cumplen el mapeo de layout.js: u = (x + HALF) / BOARD_SIZE y (con flipY) fila del lienzo = z.
-    const lienzoTablero = crearLienzo(TEXTURA_TABLERO, TEXTURA_TABLERO);
+    // Textura nítida: 4096 px si la tarjeta gráfica lo permite
+    const LADO = renderer.capabilities.maxTextureSize >= TEXTURA_TABLERO ? TEXTURA_TABLERO : 2048;
+    const lienzoTablero = crearLienzo(LADO, LADO);
     const ctxTablero = lienzoTablero.getContext('2d');
     ctxTablero.fillStyle = COLOR_MENTA;
-    ctxTablero.fillRect(0, 0, TEXTURA_TABLERO, TEXTURA_TABLERO);
+    ctxTablero.fillRect(0, 0, LADO, LADO);
     const texTablero = texturaDeLienzo(lienzoTablero, renderer.capabilities.getMaxAnisotropy());
     const geoLosa = new THREE.BoxGeometry(BOARD_SIZE, BOARD_THICKNESS, BOARD_SIZE);
     geoLosa.translate(0, -BOARD_THICKNESS / 2, 0);
     const matCanto = new THREE.MeshStandardMaterial({ map: crearTexturaCanto(), roughness: 0.85 });
-    const matCara = new THREE.MeshStandardMaterial({ map: texTablero, roughness: 0.62, metalness: 0 });
+    // Cartón impreso mate: casi sin reflejos del entorno para que no se vea brilloso
+    const matCara = new THREE.MeshStandardMaterial({ map: texTablero, roughness: 0.95, metalness: 0, envMapIntensity: 0.35 });
     const matBase = new THREE.MeshStandardMaterial({ color: 0x3a332c, roughness: 0.9 });
     // Grupos de BoxGeometry: +x, -x, +y (cara superior), -y, +z, -z
     const losa = new THREE.Mesh(geoLosa, [matCanto, matCanto, matCara, matBase, matCanto, matCanto]);
@@ -592,8 +595,8 @@ export function createMonoScene(contenedor, { view = 0, insets = null } = {}) {
             ctxTablero.save();
             ctxTablero.setTransform(1, 0, 0, 1, 0, 0);
             ctxTablero.fillStyle = COLOR_MENTA;
-            ctxTablero.fillRect(0, 0, TEXTURA_TABLERO, TEXTURA_TABLERO);
-            drawBoard(ctxTablero, TEXTURA_TABLERO, state);
+            ctxTablero.fillRect(0, 0, LADO, LADO);
+            drawBoard(ctxTablero, LADO, state);
             ctxTablero.restore();
             texTablero.needsUpdate = true;
             firmaTablero = firma;
